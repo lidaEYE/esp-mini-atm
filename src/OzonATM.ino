@@ -12,7 +12,7 @@
 namespace {
 bool displayReady = false;
 bool clockSet = false;
-bool ntpStarted = false;
+
 bool ntpReceived = false;
 uint32_t lastNetworkReport = 0;
 constexpr time_t firstValidNetworkTime = 1704067200;  // 1 января 2024 года
@@ -84,16 +84,20 @@ void setup() {
     return;
   }
 
-  showWelcomeScreen();
-  delay(2000);
-  showClockScreen(displayGraphics());
+  loadScreenTheme();
 
-  // Задаём часовой пояс сразу, чтобы ручной ввод работал и без Wi-Fi.
-  setenv("TZ", timeZone, 1);
-  tzset();
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
   WiFi.begin(wifiName, wifiPassword);
+  configTzTime(timeZone, "pool.ntp.org", "time.google.com");
+  showWelcomeScreen();
+
+  const time_t now = time(nullptr);
+  tm current{};
+  const int localMinute = now >= firstValidNetworkTime && localtime_r(&now, &current)
+      ? current.tm_hour * 60 + current.tm_min : -1;
+  loadWeather(displayGraphics(), localMinute);
+  showClockScreen(displayGraphics());
   Serial.println("Set local time: YYYY-MM-DD HH:MM:SS");
 }
 
@@ -103,20 +107,14 @@ void loop() {
     return;
   }
 
-  // Запускаем синхронизацию после подключения, не задерживая экран.
+
   const bool wifiConnected = WiFi.status() == WL_CONNECTED;
   if (updateControlPanel(wifiConnected)) {
     showClockScreen(displayGraphics());
     lastMinuteOfDay = -1;
     lastDate = -1;
   }
-  if (!ntpStarted && wifiConnected) {
-    Serial.println("Wi-Fi connected. Starting NTP.");
-    configTzTime(timeZone, "pool.ntp.org", "time.google.com");
-    ntpStarted = true;
-  }
-
-  if (ntpStarted && !ntpReceived &&
+  if (!ntpReceived &&
       sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED) {
     ntpReceived = true;
     Serial.println("NTP synchronized.");
@@ -131,28 +129,30 @@ void loop() {
 
   readClockInput();
   const time_t now = time(nullptr);
-  // До получения времени по сети или ручного ввода показываем прочерки.
+  // Рисуем время после синхронизации или ручной настройки.
   const bool clockReady = clockSet || now >= firstValidNetworkTime;
+  int localMinute = -1;
   if (clockReady) {
     tm current{};
     localtime_r(&now, &current);
-    const int minuteOfDay = current.tm_hour * 60 + current.tm_min;
+    localMinute = current.tm_hour * 60 + current.tm_min;
     const int date = current.tm_year * 366 + current.tm_yday;
     char clockText[6];
     char dateText[11];
     static const char* const weekdays[] = {"ВС", "ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ"};
-    const bool minuteChanged = minuteOfDay != lastMinuteOfDay;
+    const bool minuteChanged = localMinute != lastMinuteOfDay;
     const bool dateChanged = date != lastDate;
     if (minuteChanged || dateChanged) {
       strftime(clockText, sizeof(clockText), "%H:%M", &current);
       strftime(dateText, sizeof(dateText), "%d.%m.%Y", &current);
       updateClockScreen(displayGraphics(), minuteChanged ? clockText : nullptr,
                         dateChanged ? dateText : nullptr, weekdays[current.tm_wday]);
-      lastMinuteOfDay = minuteOfDay;
+      lastMinuteOfDay = localMinute;
       lastDate = date;
     }
   }
   // Первый запрос погоды выполняем после подтверждения синхронизации NTP.
-  updateWeather(displayGraphics(), wifiConnected, ntpReceived && now >= firstValidNetworkTime);
+  updateWeather(displayGraphics(), wifiConnected, ntpReceived && now >= firstValidNetworkTime,
+                localMinute);
   delay(20);
 }

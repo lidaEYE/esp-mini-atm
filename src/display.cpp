@@ -21,29 +21,86 @@ bool initDisplay() {
 }
 
 void showWelcomeScreen() {
-  constexpr uint8_t textSize = 5;
-  constexpr int16_t lineGap = 8;
-  const char* const lines[] = {"OZON", "BANK"};
+  constexpr int16_t pixelSize = 6;
+  constexpr char cat[][33] = {
+    "    ####                ####    ",
+    "   #pppp#              #pppp#   ",
+    "  #pppppp#            #pppppp#  ",
+    "  #ppppppp############ppppppp#  ",
+    "  #pppppwwwwwwwwwwwwwwwwppppp#  ",
+    "  #pppwwwwwwwwwwwwwwwwwwwwppp#  ",
+    "  #wwwwwwwwwwwwwwwwwwwwwwwwww#  ",
+    " #wwwwwwwwwwwwwwwwwwwwwwwwwwww# ",
+    " #www#######wwwwwwww#######www# ",
+    " #ww#wwwwwww#wwwwww#wwwwwww#ww# ",
+    " ###wwwwwwwww######wwwwwwwww### ",
+    " #w#www##wwww#wwww#wwww##www#w# ",
+    " #w#www##wwww#wwww#wwww##www#w# ",
+    " #ww#ww##www#wwwwww#www##ww#ww# ",
+    " #wwr###w###wwwwwwww###w###rww# ",
+    " #wrrrwwwwwwwwwwwwwwwwwwwwrrrw# ",
+    " #wrrrwwwwwww#wwww#wwwwwwwrrrw# ",
+    "  #wwwwwwwwwww####wwwwwwwwwww#  ",
+    "   #wwwwwwwwwwwwwwwwwwwwwwww#   ",
+    "    ##wwwwwwwwwwwwwwwwwwww##    ",
+    "      ####################      ",
+  };
+
+  const uint16_t outline = tft.color565(29, 24, 46);
+  const uint16_t fur = tft.color565(255, 244, 222);
+  const uint16_t ears = tft.color565(255, 175, 194);
+  const uint16_t cheeks = tft.color565(245, 116, 156);
 
   tft.fillScreen(tft.color565(0, 91, 255));
-  tft.setTextColor(ST77XX_WHITE);
-  tft.setTextSize(textSize);
-  tft.setTextWrap(false);
+  constexpr int16_t columns = sizeof(cat[0]) - 1;
+  constexpr int16_t rows = sizeof(cat) / sizeof(cat[0]);
+  const int16_t left = (tft.width() - columns * pixelSize) / 2;
+  const int16_t top = (tft.height() - rows * pixelSize) / 2;
 
-  int16_t left[2], top[2];
-  uint16_t width[2], height[2];
-  for (uint8_t i = 0; i < 2; ++i) {
-    tft.getTextBounds(lines[i], 0, 0, &left[i], &top[i], &width[i], &height[i]);
-  }
+  tft.startWrite();
+  for (int16_t y = 0; y < rows; ++y) {
+    for (int16_t x = 0; x < columns;) {
+      const char pixel = cat[y][x];
+      int16_t end = x + 1;
+      while (end < columns && cat[y][end] == pixel) ++end;
 
-  const int16_t blockHeight = height[0] + lineGap + height[1];
-  int16_t y = (tft.height() - blockHeight) / 2;
-  for (uint8_t i = 0; i < 2; ++i) {
-    const int16_t x = (tft.width() - static_cast<int16_t>(width[i])) / 2;
-    tft.setCursor(x - left[i], y - top[i]);
-    tft.print(lines[i]);
-    y += height[i] + lineGap;
+      if (pixel != ' ') {
+        uint16_t color = outline;
+        if (pixel == 'w') color = fur;
+        if (pixel == 'p') color = ears;
+        if (pixel == 'r') color = cheeks;
+        tft.writeFillRect(left + x * pixelSize, top + y * pixelSize,
+                          (end - x) * pixelSize, pixelSize, color);
+      }
+      x = end;
+    }
   }
+  tft.endWrite();
+
+  // Replace only the eye pixels inside the glasses.
+  auto drawEyes = [&](bool open) {
+    tft.startWrite();
+    constexpr int16_t eyeColumns[] = {7, 23};
+    for (const int16_t eyeColumn : eyeColumns) {
+      const int16_t x = left + eyeColumn * pixelSize;
+      const int16_t y = top + 11 * pixelSize;
+      tft.writeFillRect(x, y, 2 * pixelSize, 3 * pixelSize, fur);
+      tft.writeFillRect(x, open ? y : y + pixelSize,
+                        2 * pixelSize, (open ? 3 : 1) * pixelSize, outline);
+    }
+    tft.endWrite();
+  };
+
+  constexpr uint16_t blinkDuration = 120;
+  delay(1100);
+  drawEyes(false);
+  delay(blinkDuration);
+  drawEyes(true);
+  delay(1480);
+  drawEyes(false);
+  delay(blinkDuration);
+  drawEyes(true);
+  delay(1180);
 }
 
 Adafruit_GFX& displayGraphics() {

@@ -1,6 +1,7 @@
 #include "screens.h"
 #include "modern_font.h"
 #include <Adafruit_GFX.h>
+#include <Preferences.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -13,7 +14,7 @@ constexpr uint16_t ModernBlue = 0x015B;
 constexpr uint16_t Lime = 0x976B;
 
 ScreenTheme activeTheme = ScreenTheme::Modern;
-char lastTemperature[16] = "--";
+char lastTemperature[16] = "";
 char lastCondition[64] = "ПОГОДА";
 WeatherIcon lastIcon = WeatherIcon::None;
 
@@ -142,7 +143,7 @@ void drawCloud(Adafruit_GFX& screen, int x, int y) {
   screen.fillCircle(x + 3, y, 7, White);
 }
 
-void drawWeatherIcon(Adafruit_GFX& screen, WeatherIcon icon, int x, int y, uint16_t sunColor) {
+void drawWeatherIcon(Adafruit_GFX& screen, WeatherIcon icon, int x, int y, uint16_t sunColor, uint16_t background) {
 
   switch (icon) {
     case WeatherIcon::Sun:
@@ -150,6 +151,15 @@ void drawWeatherIcon(Adafruit_GFX& screen, WeatherIcon icon, int x, int y, uint1
       break;
     case WeatherIcon::PartlyCloudy:
       drawSun(screen, x - 7, y - 5, sunColor);
+      drawCloud(screen, x + 5, y);
+      break;
+    case WeatherIcon::Moon:
+      screen.fillCircle(x, y, 10, White);
+      screen.fillCircle(x + 5, y - 4, 8, background);
+      break;
+    case WeatherIcon::PartlyCloudyNight:
+      screen.fillCircle(x - 7, y - 5, 9, White);
+      screen.fillCircle(x - 3, y - 9, 7, background);
       drawCloud(screen, x + 5, y);
       break;
     case WeatherIcon::Cloud:
@@ -294,7 +304,7 @@ void drawModernWeather(Adafruit_GFX& screen, const char* temperature,
                        const char* condition, WeatherIcon icon) {
   screen.fillRoundRect(18, 130, 204, 65, 15, CardBackground);
   screen.drawFastVLine(87, 143, 38, White);
-  drawWeatherIcon(screen, icon, 52, 161, Pink);
+  drawWeatherIcon(screen, icon, 52, 161, Pink, CardBackground);
 
   char degrees[16];
   snprintf(degrees, sizeof(degrees), "%s°C", temperature);
@@ -325,15 +335,14 @@ void showClockScreen(Adafruit_GFX& screen) {
   screen.setTextWrap(false);
   if (activeTheme == ScreenTheme::Modern) {
     drawModernBackground(screen);
-    updateClockScreen(screen, "--:--", "--.--.----");
+
     renderWeather(screen, lastTemperature, lastCondition, lastIcon);
     return;
   }
   screen.fillScreen(Blue);
   drawHeading(screen, u"ozon банк");
   screen.drawFastHLine(96, 148, 48, Pink);
-  centered(screen, "--:--", 91, 6, White);
-  centered(screen, "--.--.----", 169, 2, White);
+
   renderWeather(screen, lastTemperature, lastCondition, lastIcon);
 }
 
@@ -365,13 +374,14 @@ void updateClockScreen(Adafruit_GFX& screen, const char* clockText, const char* 
 namespace {
 void renderWeather(Adafruit_GFX& screen, const char* temperature, const char* condition,
                      WeatherIcon icon) {
+  if (!temperature[0]) return;
   if (activeTheme == ScreenTheme::Modern) {
     drawModernWeather(screen, temperature, condition, icon);
     return;
   }
   const int centerX = screen.width() / 2;
   screen.fillRect(centerX - 24, 49, 48, 39, Blue);
-  drawWeatherIcon(screen, icon, centerX, 69, 0xFFE0);
+  drawWeatherIcon(screen, icon, centerX, 69, 0xFFE0, Blue);
   // Город и температура сверху, описание отдельной строкой.
   char heading[48];
   snprintf(heading, sizeof(heading), "МОСКВА  %s°C", temperature);
@@ -382,6 +392,16 @@ void renderWeather(Adafruit_GFX& screen, const char* temperature, const char* co
 
 }
 
+void loadScreenTheme() {
+  Preferences preferences;
+  if (!preferences.begin("display", true)) return;
+
+  // При первом запуске или неизвестном значении выбираем современную тему.
+  const uint8_t saved = preferences.getUChar("theme", 1);
+  activeTheme = saved == 0 ? ScreenTheme::Classic : ScreenTheme::Modern;
+  preferences.end();
+}
+
 ScreenTheme screenTheme() {
   return activeTheme;
 }
@@ -389,13 +409,22 @@ ScreenTheme screenTheme() {
 bool setScreenTheme(ScreenTheme theme) {
   if (activeTheme == theme) return false;
   activeTheme = theme;
+
+  // Записываем только при смене темы, чтобы не делать лишних записей во flash.
+  Preferences preferences;
+  if (preferences.begin("display", false)) {
+    const size_t written = preferences.putUChar("theme", theme == ScreenTheme::Classic ? 0 : 1);
+    preferences.end();
+    if (written == 1) return true;
+  }
+  Serial.println("OzonATM: could not save screen theme.");
   return true;
 }
 
 void showWeatherLine(Adafruit_GFX& screen, const char* temperature,
-                     const char* condition, WeatherIcon icon) {
+                     const char* condition, WeatherIcon icon, bool redraw) {
   snprintf(lastTemperature, sizeof(lastTemperature), "%s", temperature);
   snprintf(lastCondition, sizeof(lastCondition), "%s", condition);
   lastIcon = icon;
-  renderWeather(screen, lastTemperature, lastCondition, lastIcon);
+  if (redraw) renderWeather(screen, lastTemperature, lastCondition, lastIcon);
 }

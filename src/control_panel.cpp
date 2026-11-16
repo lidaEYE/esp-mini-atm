@@ -23,6 +23,18 @@ bool isLocalAddress() {
   return false;
 }
 
+bool allowChange() {
+  if (!isLocalAddress()) return false;
+  if (server.arg("token") == token) return true;
+  server.send(403, "text/plain", "Reload the control panel and try again.");
+  return false;
+}
+
+void redirectToPanel() {
+  server.sendHeader("Location", "/");
+  server.send(303, "text/plain", "");
+}
+
 void showPanel() {
   if (!isLocalAddress()) return;
   String page = R"html(<!doctype html><html lang="ru"><meta charset="utf-8">
@@ -30,8 +42,8 @@ void showPanel() {
 <title>OzonATM</title>
 <style>
 *{box-sizing:border-box}body{margin:0;padding:24px;background:#05218c;color:#fff;
-font:16px system-ui,sans-serif}main{max-width:420px;margin:12vh auto}
-h1{font-size:36px;margin:0 0 20px}section{background:#123bb2;border-radius:20px;padding:22px}
+font:16px system-ui,sans-serif}main{max-width:420px;margin:5vh auto}
+h1{font-size:36px;margin:0 0 20px}section{background:#123bb2;border-radius:20px;padding:22px;margin-bottom:14px}
 h2{margin:0 0 12px;font-size:20px}p{margin:0 0 18px;color:#e0e8ff}
 form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 button{border:0;border-radius:10px;padding:12px 4px;font:inherit;font-weight:600;
@@ -54,7 +66,7 @@ background:#e2ebff;color:#102879;cursor:pointer}button:disabled{background:#ffb9
 bool updateControlPanel(bool wifiConnected) {
   static bool registered = false;
   static bool running = false;
-  static bool themeChanged = false;
+  static bool screenChanged = false;
 
   if (!wifiConnected) {
     if (running) {
@@ -71,19 +83,14 @@ bool updateControlPanel(bool wifiConnected) {
     token = nonce;
     server.on("/", HTTP_GET, showPanel);
     server.on("/theme", HTTP_POST, [] {
-      if (!isLocalAddress()) return;
-      if (server.arg("token") != token) {
-        server.send(403, "text/plain", "Reload the control panel and try again.");
-        return;
-      }
+      if (!allowChange()) return;
       const String value = server.arg("theme");
       if (value != "modern" && value != "classic") {
         server.send(400, "text/plain", "Unknown theme.");
         return;
       }
-      themeChanged = setScreenTheme(value == "modern" ? ScreenTheme::Modern : ScreenTheme::Classic);
-      server.sendHeader("Location", "/");
-      server.send(303, "text/plain", "");
+      screenChanged = setScreenTheme(value == "modern" ? ScreenTheme::Modern : ScreenTheme::Classic);
+      redirectToPanel();
     });
     registered = true;
   }
@@ -99,7 +106,7 @@ bool updateControlPanel(bool wifiConnected) {
     Serial.print("OzonATM control panel: http://");
     Serial.println(WiFi.localIP());
   }
-  themeChanged = false;
+  screenChanged = false;
   server.handleClient();
-  return themeChanged;
+  return screenChanged;
 }

@@ -1,4 +1,4 @@
 #pragma once
 
-// Возвращает true, когда через веб-панель выбрана другая тема.
+// Возвращает true, когда через веб-панель нужно перерисовать экран.
 bool updateControlPanel(bool wifiConnected);
